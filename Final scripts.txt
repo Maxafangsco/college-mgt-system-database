@@ -1,0 +1,305 @@
+a Sequence
+
+-- Create a sequence
+CREATE SEQUENCE student_seq
+    START WITH 100
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+
+-- Use the sequence to insert sample data into the Students table
+INSERT INTO Students (student_id, first_name, last_name, date_of_birth, gender, contact_number, email_address, address)
+VALUES (student_seq.NEXTVAL, 'John', 'Doe', '01-JAN-1990', 'Male', '+1234567890', 'john.doe@example.com', '123 Main St Toronto');
+
+-- Use the sequence to update a specific student's information
+UPDATE Students
+SET first_name = 'Jane', last_name = 'Smith', email_address = 'jane.smith@example.com'
+WHERE student_id = 100;
+
+-- Check the updated data
+SELECT * FROM Students WHERE student_id = 100;
+
+B. Indexes
+-- Index for Students table on Student_ID
+CREATE INDEX idx_students_student_id ON Students(Student_ID);
+
+-- Index for Enrollment table on Student_ID and Course_ID
+CREATE INDEX idx_enrollment_student_course ON Enrollment(Student_ID, Course_ID);
+
+-- Index for Students table on Email_Address
+CREATE INDEX idx_students_email_address ON Students(Email_Address);
+
+-- Index for Attendance table on Class_ID and Student_ID
+CREATE INDEX idx_attendance_class_student ON Attendance(Class_ID, Student_ID);
+
+-- Index for Fees table on Student_ID and Course_ID
+CREATE INDEX idx_fees_student_course ON Fees(Student_ID, Course_ID);
+
+
+C.Trigger
+
+Trigger before inserting into the Students table:
+This trigger sets a default value for the Date_of_Birth column if it is not provided during the insertion.
+
+CREATE OR REPLACE TRIGGER before_insert_students
+BEFORE INSERT ON Students
+FOR EACH ROW
+BEGIN
+  IF :NEW.Date_of_Birth IS NULL THEN
+    :NEW.Date_of_Birth := TO_DATE('01-JAN-2000', 'DD-MON-YYYY');
+  END IF;
+END;
+
+
+Trigger before updating the ATTENDANCE table:
+This trigger updates the Attendance_Date to the current date before any update operation on the attendance table.
+
+CREATE OR REPLACE TRIGGER before_update_attendance
+BEFORE UPDATE ON Attendance
+FOR EACH ROW
+BEGIN
+  :NEW.ATTENDANCE_Date := SYSDATE;
+END;
+
+D. Procedure
+-- Procedure 1: Update Email Address
+CREATE OR REPLACE PROCEDURE update_student_email(
+    p_student_id IN NUMBER,
+    p_new_email IN VARCHAR2
+)
+IS
+    v_student_count NUMBER;
+    v_cursor SYS_REFCURSOR; -- Declare a cursor variable
+    v_student_record Students%ROWTYPE; -- Declare a record variable to store student information
+BEGIN
+    -- Check if the student exists
+    SELECT COUNT(*) INTO v_student_count
+    FROM Students
+    WHERE Student_ID = p_student_id;
+
+    IF v_student_count = 0 THEN
+        -- Student not found
+        RAISE_APPLICATION_ERROR(-20001, 'Student not found');
+    ELSE
+        -- Use a cursor to fetch the student information
+        OPEN v_cursor FOR
+            SELECT *
+            FROM Students
+            WHERE Student_ID = p_student_id;
+
+        FETCH v_cursor INTO v_student_record;
+
+        -- Update the email address
+        UPDATE Students
+        SET Email_Address = p_new_email
+        WHERE Student_ID = p_student_id;
+        COMMIT;
+
+        DBMS_OUTPUT.PUT_LINE('Email address updated successfully');
+        
+        -- You can use the v_student_record variable to access other fields if needed.
+        
+        CLOSE v_cursor; -- Close the cursor
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Handle any other exceptions
+        DBMS_OUTPUT.PUT_LINE('An error occurred: ' || SQLERRM);
+        IF v_cursor IS NOT NULL THEN
+            CLOSE v_cursor; -- Close the cursor in case of an exception
+        END IF;
+END;
+
+
+--Test procedure update_student_email
+BEGIN
+update_student_email(1,'james@gmail.com');
+end;
+ --END Test procedure update_student_email
+
+
+-- Procedure 2: Retrieve Students by Course
+CREATE OR REPLACE PROCEDURE get_students_by_course(
+    p_course_id IN NUMBER
+)
+IS
+    CURSOR student_cursor IS
+        SELECT s.Student_ID, s.First_Name, s.Last_Name
+        FROM Students s
+        JOIN Enrollment e ON s.Student_ID = e.Student_ID
+        WHERE e.Course_ID = p_course_id;
+
+    v_student_id NUMBER;
+    v_first_name VARCHAR2(50);
+    v_last_name VARCHAR2(50);
+BEGIN
+    OPEN student_cursor;
+    LOOP
+        FETCH student_cursor INTO v_student_id, v_first_name, v_last_name;
+        EXIT WHEN student_cursor%NOTFOUND;
+
+        -- Process each student
+        DBMS_OUTPUT.PUT_LINE('Student ID: ' || v_student_id || ', Name: ' || v_first_name || ' ' || v_last_name);
+    END LOOP;
+    CLOSE student_cursor;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('No students found for the given course');
+    WHEN OTHERS THEN
+        -- Handle any other exceptions
+        DBMS_OUTPUT.PUT_LINE('An error occurred: ' || SQLERRM);
+END;
+
+
+--Test procedure get_students_by_course
+BEGIN
+get_students_by_course(3);
+end;
+ --END Test procedure get_students_by_course
+
+
+E. FUNCTIONS
+
+-- Function 1: Get Average Marks for a Student
+CREATE OR REPLACE FUNCTION get_average_marks(
+    p_student_id IN NUMBER
+) RETURN NUMBER
+IS
+    v_total_marks NUMBER := 0;
+    v_subject_count NUMBER := 0;
+    v_average_marks NUMBER;
+BEGIN
+    -- Calculate total marks for the student
+    FOR marks_rec IN (SELECT Marks_Obtained FROM Grades WHERE Enrollment_ID IN (SELECT Enrollment_ID FROM Enrollment WHERE Student_ID = p_student_id))
+    LOOP
+        v_total_marks := v_total_marks + marks_rec.Marks_Obtained;
+        v_subject_count := v_subject_count + 1;
+    END LOOP;
+
+    -- Avoid division by zero
+    IF v_subject_count > 0 THEN
+        -- Calculate average marks
+        v_average_marks := v_total_marks / v_subject_count;
+        RETURN v_average_marks;
+    ELSE
+        -- No grades found for the student
+        RETURN NULL;
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Handle any other exceptions
+        RETURN NULL;
+END;
+
+
+--start Test code for function 1
+
+DECLARE
+    v_student_id NUMBER := 10; -- Replace with the desired student ID for testing
+
+    v_average_marks NUMBER;
+    v_total_fees DECIMAL(10, 2);
+BEGIN
+    -- Test Function 1: Get Average Marks
+    v_average_marks := get_average_marks(v_student_id);
+
+    IF v_average_marks IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Average Marks for Student ' || v_student_id || ': ' || TO_CHAR(v_average_marks, '999.99'));
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('No grades found for Student ' || v_student_id);
+    END IF;
+END;
+
+--End Test code for function 1
+
+-- Function 2: Calculate Total Fees Paid by a Student
+CREATE OR REPLACE FUNCTION get_total_fees_paid(
+    p_student_id IN NUMBER
+) RETURN DECIMAL
+IS
+    v_total_fees DECIMAL(10, 2) := 0;
+BEGIN
+    -- Sum up the fees paid by the student
+    FOR fees_rec IN (SELECT Amount FROM Fees WHERE Student_ID = p_student_id)
+    LOOP
+        v_total_fees := v_total_fees + fees_rec.Amount;
+    END LOOP;
+
+    RETURN v_total_fees;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Handle any other exceptions
+        RETURN NULL;
+END;
+
+
+--start Test code for function 2
+
+DECLARE
+    v_student_id NUMBER := 10; -- Replace with the desired student ID for testing
+
+    v_average_marks NUMBER;
+    v_total_fees DECIMAL(10, 2);
+BEGIN
+    -- Test Function 2: Get Total Fees Paid
+    v_total_fees := get_total_fees_paid(v_student_id);
+
+    IF v_total_fees IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Total Fees Paid by Student ' || v_student_id || ': $' || TO_CHAR(v_total_fees, '99999.99'));
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('No fees found for Student ' || v_student_id);
+    END IF;
+END;
+
+--End Test code for function 2
+
+F.
+CREATE OR REPLACE PACKAGE college_management_pkg AS
+    FUNCTION get_total_fees_paid(
+        p_student_id IN NUMBER
+    ) RETURN DECIMAL;
+END college_management_pkg;
+
+
+
+--Package 
+CREATE OR REPLACE PACKAGE BODY college_management_pkg AS
+    FUNCTION get_total_fees_paid(
+        p_student_id IN NUMBER
+    ) RETURN DECIMAL
+    IS
+        v_total_fees DECIMAL(10, 2) := 0;
+    BEGIN
+        -- Sum up the fees paid by the student using SQL aggregation
+        SELECT COALESCE(SUM(Amount), 0)
+        INTO v_total_fees
+        FROM Fees
+        WHERE Student_ID = p_student_id;
+
+        RETURN v_total_fees;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            -- Handle the case where there are no records for the student
+            RETURN 0;
+        WHEN OTHERS THEN
+            -- Handle any other exceptions
+            RETURN 0; -- or another default value as needed
+    END get_total_fees_paid;
+END college_management_pkg;
+
+-- Test code for Package
+DECLARE
+    v_student_id NUMBER := 1;
+    v_total_fees DECIMAL(10, 2);
+BEGIN
+    v_total_fees := college_management_pkg.get_total_fees_paid(v_student_id);
+
+    IF v_total_fees IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Total Fees for Student ' || v_student_id || ': $' || v_total_fees);
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Error calculating total fees.');
+    END IF;
+END;
+--End of test code
+
+
